@@ -1,6 +1,9 @@
 image:
-  repository: quay.io/maistra-dev/federation-controller
-  tag: latest
+  repository: quay.io/jewertow/federation-controller
+  tag: ambient
+
+istio:
+  ambientModeEnabled: false
 
 federation:
   configMode: mcp

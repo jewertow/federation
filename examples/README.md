@@ -115,6 +115,65 @@ helm-west install west-mesh chart -n istio-system \
   --set "federation.configMode=k8s"
 ```
 
+#### K8S and ambient mode - controller creates Istio resources in the k8s-apiserver and Istio works in ambient mode
+
+1. Install Gateway API:
+```shell
+keast get crd gateways.gateway.networking.k8s.io &> /dev/null || \
+  { keast apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml" }
+kwest get crd gateways.gateway.networking.k8s.io &> /dev/null || \
+  { kwest apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml" }
+```
+
+2. Deploy Istio control planes and gateways:
+```shell
+istioctl --kubeconfig=west.kubeconfig install -f examples/k8s/west-mesh.yaml -y
+istioctl --kubeconfig=east.kubeconfig install -f examples/k8s/east-mesh.yaml -y
+```
+
+3. Deploy waypoints for remote federation controller:
+```shell
+istioctl --kubeconfig=west.kubeconfig waypoint apply --for=service -n istio-system
+istioctl --kubeconfig=east.kubeconfig waypoint apply --for=service -n istio-system
+```
+
+4. Deploy federation controller:
+```shell
+WEST_GATEWAY_IP=$(kwest get svc federation-ingress-gateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+helm-east install east-mesh chart -n istio-system \
+  --values examples/federation-controller.yaml \
+  --set "federation.meshPeers.remote.addresses[0]=$WEST_GATEWAY_IP" \
+  --set "federation.configMode=k8s" \
+  --set "istio.ambientModeEnabled=true"
+EAST_GATEWAY_IP=$(keast get svc federation-ingress-gateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+helm-west install west-mesh chart -n istio-system \
+  --values examples/federation-controller.yaml \
+  --set "federation.meshPeers.remote.addresses[0]=$EAST_GATEWAY_IP" \
+  --set "federation.configMode=k8s" \
+  --set "istio.ambientModeEnabled=true"
+```
+
+### Waypoint egress demo
+
+```shell
+keast label namespace default istio.io/dataplane-mode=ambient
+keast apply -f https://raw.githubusercontent.com/istio/istio/release-1.23/samples/sleep/sleep.yaml
+keast apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: httpbin.org
+spec:
+  hosts:
+  - httpbin.org
+  ports:
+  - number: 80
+    name: http
+    protocol: HTTP
+  resolution: DNS
+EOF
+```
+
 ### Deploy and export services
 
 1. Enable mTLS and deploy apps:

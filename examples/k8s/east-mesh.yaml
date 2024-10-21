@@ -1,25 +1,33 @@
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
-  profile: default
-  meshConfig:
-    accessLogFile: /dev/stdout
-    accessLogFormat: "[ %START_TIME% ] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %RESPONSE_CODE_DETAILS% %CONNECTION_TERMINATION_DETAILS% \"%UPSTREAM_TRANSPORT_FAILURE_REASON%\" %BYTES_RECEIVED% %BYTES_SENT% %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% \"%REQ(X-FORWARDED-FOR)%\" \"%REQ(USER-AGENT)%\" \"%REQ(X-REQUEST-ID)%\" \"%REQ(:AUTHORITY)%\" UPSTREAM_HOST=\"%UPSTREAM_HOST%\" %UPSTREAM_CLUSTER% %UPSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_REMOTE_ADDRESS% %REQUESTED_SERVER_NAME% %ROUTE_NAME%\n"
-    defaultConfig:
-      proxyMetadata:
-        ISTIO_META_DNS_CAPTURE: "true"
-        ISTIO_META_DNS_AUTO_ALLOCATE: "true"
-    outboundTrafficPolicy:
-      mode: REGISTRY_ONLY
+  profile: ambient
   values:
+    meshConfig:
+      accessLogFile: /dev/stdout
+      accessLogFormat: "[ %START_TIME% ] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %RESPONSE_CODE_DETAILS% %CONNECTION_TERMINATION_DETAILS% \"%UPSTREAM_TRANSPORT_FAILURE_REASON%\" %BYTES_RECEIVED% %BYTES_SENT% %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% \"%REQ(X-FORWARDED-FOR)%\" \"%REQ(USER-AGENT)%\" \"%REQ(X-REQUEST-ID)%\" \"%REQ(:AUTHORITY)%\" UPSTREAM_HOST=\"%UPSTREAM_HOST%\" %UPSTREAM_CLUSTER% %UPSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_REMOTE_ADDRESS% %REQUESTED_SERVER_NAME% %ROUTE_NAME%\n"
+      defaultConfig:
+        proxyMetadata:
+          ISTIO_META_DNS_CAPTURE: "true"
+          DNS_PROXY_ADDR: "0.0.0.0:15053"
+      outboundTrafficPolicy:
+        mode: REGISTRY_ONLY
     global:
       meshID: east-mesh
       multiCluster:
         clusterName: east-cluster
       network: east-network
+    cni:
+      ambient:
+        dnsCapture: true
     pilot:
       env:
-        ENABLE_NATIVE_SIDECARS: "true"
+        PILOT_ENABLE_IP_AUTOALLOCATE: "true"
+    ztunnel:
+      meshConfig:
+        defaultConfig:
+          proxyMetadata:
+            ISTIO_META_DNS_CAPTURE: "true"
   components:
     ingressGateways:
     - name: federation-ingress-gateway

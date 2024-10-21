@@ -232,13 +232,19 @@ func (cf *ConfigFactory) getServiceEntryForRemoteFederationController() *v1alpha
 
 	var endpoints []*istionetv1alpha3.WorkloadEntry
 	for _, remoteAddr := range cf.cfg.MeshPeers.Remote.Addresses {
-		endpoints = append(endpoints, &istionetv1alpha3.WorkloadEntry{Address: remoteAddr})
+		endpoints = append(endpoints, &istionetv1alpha3.WorkloadEntry{
+			Address: remoteAddr,
+			Labels:  map[string]string{"security.istio.io/tlsMode": "istio"},
+		})
 	}
 	return &v1alpha3.ServiceEntry{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "remote-federation-controller",
 			Namespace: cf.cfg.MeshPeers.Local.ControlPlane.Namespace,
-			Labels:    map[string]string{"federation.istio-ecosystem.io/peer": "todo"},
+			Labels: map[string]string{
+				"istio.io/use-waypoint":              "waypoint",
+				"federation.istio-ecosystem.io/peer": "todo",
+			},
 		},
 		Spec: istionetv1alpha3.ServiceEntry{
 			Hosts: []string{fmt.Sprintf("remote-federation-controller.%s.svc.cluster.local", cf.cfg.MeshPeers.Local.ControlPlane.Namespace)},
@@ -247,8 +253,9 @@ func (cf *ConfigFactory) getServiceEntryForRemoteFederationController() *v1alpha
 				Number:   15080,
 				Protocol: "GRPC",
 			}},
-			Location:   istionetv1alpha3.ServiceEntry_MESH_EXTERNAL,
-			Resolution: istionetv1alpha3.ServiceEntry_STATIC,
+			//Location: istionetv1alpha3.ServiceEntry_MESH_EXTERNAL,
+			// In case of IP addresses, we set STATIC resolution type to let Envoy
+			Resolution: istionetv1alpha3.ServiceEntry_DNS,
 			Endpoints:  endpoints,
 		},
 	}
