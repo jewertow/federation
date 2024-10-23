@@ -20,14 +20,17 @@ alias helm-west="KUBECONFIG=$(pwd)/west.kubeconfig helm"
 ### Trust model
 
 Currently, mesh federation does not work for meshes using different root certificates, but this is on the roadmap.
+For different roots and trust domains use SPIRE.
 
-1. Download tools for certificate generation:
+Download tools for certificate generation:
 ```shell
 wget https://raw.githubusercontent.com/istio/istio/release-1.21/tools/certs/common.mk -O common.mk
 wget https://raw.githubusercontent.com/istio/istio/release-1.21/tools/certs/Makefile.selfsigned.mk -O Makefile.selfsigned.mk
 ```
 
-2. Generate certificates for east and west clusters:
+#### Common root and trust domain
+
+1. Generate root and intermediate certificates for both clusters:
 ```shell
 make -f Makefile.selfsigned.mk \
   ROOTCA_CN="East Root CA" \
@@ -44,7 +47,7 @@ make -f Makefile.selfsigned.mk \
 make -f common.mk clean
 ```
 
-3. Create `cacert` secrets:
+2. Create `cacert` secrets:
 ```shell
 keast create namespace istio-system
 keast create secret generic cacerts -n istio-system \
@@ -52,8 +55,6 @@ keast create secret generic cacerts -n istio-system \
   --from-file=ca-cert.pem=east/ca-cert.pem \
   --from-file=ca-key.pem=east/ca-key.pem \
   --from-file=cert-chain.pem=east/cert-chain.pem
-```
-```shell
 kwest create namespace istio-system
 kwest create secret generic cacerts -n istio-system \
   --from-file=root-cert.pem=west/root-cert.pem \
@@ -61,6 +62,31 @@ kwest create secret generic cacerts -n istio-system \
   --from-file=ca-key.pem=west/ca-key.pem \
   --from-file=cert-chain.pem=west/cert-chain.pem
 ```
+
+#### Different roots and trust domains
+
+Generate root certificates for both clusters:
+```shell
+make -f Makefile.selfsigned.mk \
+  ROOTCA_CN="East Root CA" \
+  ROOTCA_ORG=my-company.org \
+  root-ca
+mkdir -p east
+mv root-cert.pem east
+mv root-key.pem east
+make -f common.mk clean
+
+make -f Makefile.selfsigned.mk \
+  ROOTCA_CN="West Root CA" \
+  ROOTCA_ORG=my-company.org \
+  root-ca
+mkdir -p west
+mv root-cert.pem west
+mv root-key.pem west
+make -f common.mk clean
+```
+
+Now, follow this [instruction](spire/README.md) to deploy cert-manager and SPIRE.
 
 ### Deploy control planes and federation controllers
 

@@ -1,0 +1,10 @@
+global:
+  spire:
+    clusterName: east
+    trustDomain: east.local
+  installAndUpgradeHooks:
+    enabled: false
+  deleteHooks:
+    enabled: false
+spiffe-oidc-discovery-provider:
+  enabled: false

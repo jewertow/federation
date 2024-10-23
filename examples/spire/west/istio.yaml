@@ -1,0 +1,147 @@
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  namespace: istio-system
+spec:
+  profile: default
+  meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogFormat: "[ %START_TIME% ] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %RESPONSE_CODE_DETAILS% %CONNECTION_TERMINATION_DETAILS% \"%UPSTREAM_TRANSPORT_FAILURE_REASON%\" %BYTES_RECEIVED% %BYTES_SENT% %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% \"%REQ(X-FORWARDED-FOR)%\" \"%REQ(USER-AGENT)%\" \"%REQ(X-REQUEST-ID)%\" \"%REQ(:AUTHORITY)%\" UPSTREAM_HOST=\"%UPSTREAM_HOST%\" %UPSTREAM_CLUSTER% %UPSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_REMOTE_ADDRESS% %REQUESTED_SERVER_NAME% %ROUTE_NAME%\n"
+    trustDomain: west.local
+    trustDomainAliases:
+    - east.local
+    defaultConfig:
+      proxyMetadata:
+        # Enable basic DNS proxying
+        ISTIO_META_DNS_CAPTURE: "true"
+        ISTIO_META_DNS_AUTO_ALLOCATE: "true"
+      outboundTrafficPolicy:
+        mode: REGISTRY_ONLY
+  values:
+    global:
+      meshID: west-mesh
+      multiCluster:
+        clusterName: west
+      network: west-network
+    pilot:
+      env:
+        ENABLE_NATIVE_SIDECARS: "true"
+        AUTO_RELOAD_PLUGIN_CERTS: "true"
+    # This is used to customize the sidecar template
+    sidecarInjectorWebhook:
+      templates:
+        spire: |
+          spec:
+            containers:
+            - name: istio-proxy
+              volumeMounts:
+              - name: workload-socket
+                mountPath: /run/secrets/workload-spiffe-uds
+                readOnly: true
+            volumes:
+              - name: workload-socket
+                csi:
+                  driver: "csi.spiffe.io"
+                  readOnly: true
+  components:
+    ingressGateways:
+      - name: istio-ingressgateway
+        enabled: true
+        label:
+          istio: ingressgateway
+        k8s:
+          podAnnotations:
+            spiffe.io/federatesWith: east.local
+          overlays:
+            - apiVersion: apps/v1
+              kind: Deployment
+              name: istio-ingressgateway
+              patches:
+                - path: spec.template.spec.volumes.[name:workload-socket]
+                  value:
+                    name: workload-socket
+                    csi:
+                      driver: "csi.spiffe.io"
+                      readOnly: true
+                - path: spec.template.spec.containers.[name:istio-proxy].volumeMounts.[name:workload-socket]
+                  value:
+                    name: workload-socket
+                    mountPath: "/run/secrets/workload-spiffe-uds"
+                    readOnly: true
+                - path: spec.template.spec.initContainers
+                  value:
+                    - name: wait-for-spire-socket
+                      image: busybox:1.28
+                      volumeMounts:
+                        - name: workload-socket
+                          mountPath: /run/secrets/workload-spiffe-uds
+                          readOnly: true
+                      env:
+                        - name: CHECK_FILE
+                          value: /run/secrets/workload-spiffe-uds/socket
+                      command:
+                        - sh
+                        - "-c"
+                        - |-
+                          echo "$(date -Iseconds)" Waiting for: ${CHECK_FILE}
+                          while [[ ! -e ${CHECK_FILE} ]] ; do
+                            echo "$(date -Iseconds)" File does not exist: ${CHECK_FILE}
+                            sleep 15
+                          done
+                          ls -l ${CHECK_FILE}
+      - name: federation-ingress-gateway
+        enabled: true
+        label:
+          app: federation-ingress-gateway
+          topology.istio.io/network: west-network
+        k8s:
+          podAnnotations:
+            spiffe.io/federatesWith: "east.local"
+          overlays:
+          - apiVersion: apps/v1
+            kind: Deployment
+            name: federation-ingress-gateway
+            patches:
+              - path: spec.template.spec.volumes.[name:workload-socket]
+                value:
+                  name: workload-socket
+                  csi:
+                    driver: "csi.spiffe.io"
+                    readOnly: true
+              - path: spec.template.spec.containers.[name:istio-proxy].volumeMounts.[name:workload-socket]
+                value:
+                  name: workload-socket
+                  mountPath: "/run/secrets/workload-spiffe-uds"
+                  readOnly: true
+              - path: spec.template.spec.initContainers
+                value:
+                  - name: wait-for-spire-socket
+                    image: busybox:1.28
+                    volumeMounts:
+                      - name: workload-socket
+                        mountPath: /run/secrets/workload-spiffe-uds
+                        readOnly: true
+                    env:
+                      - name: CHECK_FILE
+                        value: /run/secrets/workload-spiffe-uds/socket
+                    command:
+                      - sh
+                      - "-c"
+                      - |-
+                        echo "$(date -Iseconds)" Waiting for: ${CHECK_FILE}
+                        while [[ ! -e ${CHECK_FILE} ]] ; do
+                          echo "$(date -Iseconds)" File does not exist: ${CHECK_FILE}
+                          sleep 15
+                        done
+                        ls -l ${CHECK_FILE}
+          env:
+          - name: ISTIO_META_REQUESTED_NETWORK_VIEW
+            value: west-network
+          service:
+            ports:
+            - name: discovery
+              port: 15080
+              targetPort: 15080
+            - name: data-plane
+              port: 15443
+              targetPort: 15443
