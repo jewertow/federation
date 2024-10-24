@@ -103,13 +103,13 @@ helm-east install east-mesh chart -n istio-system \
     --values examples/federation-controller.yaml \
     --set "federation.meshPeers.remote.addresses[0]=$WEST_GATEWAY_IP" \
     --set "federation.configMode=k8s" \
-    --set "istio.sdsProvider=spire"
+    --set "istio.spire.enabled=true"
 EAST_GATEWAY_IP=$(keast get svc federation-ingress-gateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 helm-west install west-mesh chart -n istio-system \
     --values examples/federation-controller.yaml \
     --set "federation.meshPeers.remote.addresses[0]=$EAST_GATEWAY_IP" \
     --set "federation.configMode=k8s" \
-    --set "istio.sdsProvider=spire"
+    --set "istio.spire.enabled=true"
 ```
 
 6. Deploy and export apps:
