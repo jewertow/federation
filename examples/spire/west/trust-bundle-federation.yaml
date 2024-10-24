@@ -1,0 +1,10 @@
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterFederatedTrustDomain
+metadata:
+  name: east
+spec:
+  trustDomain: east.local
+  bundleEndpointURL: https://<east_bundle_endpoints_ip>:8443
+  bundleEndpointProfile:
+    type: https_spiffe
+    endpointSPIFFEID: spiffe://west.local/spire/server

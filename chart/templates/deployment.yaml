@@ -11,10 +11,13 @@ spec:
       {{- include "chart.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- if eq .Values.federation.configMode "mcp" }}
       annotations:
+      {{- if eq .Values.federation.configMode "mcp" }}
         traffic.sidecar.istio.io/includeInboundPorts: "*"
         traffic.sidecar.istio.io/excludeInboundPorts: "15010"
+      {{- end }}
+      {{- if eq .Values.istio.sdsProvider "spire" }}
+        inject.istio.io/templates: "sidecar,spire"
       {{- end }}
       labels:
         {{- include "chart.labels" . | nindent 8 }}

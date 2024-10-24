@@ -125,6 +125,7 @@ metadata:
   name: spire-server
   namespace: spire
 ---
+# This is an equivalent of trust-bundle config map
 apiVersion: v1
 kind: ConfigMap
 metadata:
