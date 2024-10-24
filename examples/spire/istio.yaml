@@ -7,9 +7,9 @@ spec:
   meshConfig:
     accessLogFile: /dev/stdout
     accessLogFormat: "[ %START_TIME% ] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %RESPONSE_CODE_DETAILS% %CONNECTION_TERMINATION_DETAILS% \"%UPSTREAM_TRANSPORT_FAILURE_REASON%\" %BYTES_RECEIVED% %BYTES_SENT% %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% \"%REQ(X-FORWARDED-FOR)%\" \"%REQ(USER-AGENT)%\" \"%REQ(X-REQUEST-ID)%\" \"%REQ(:AUTHORITY)%\" UPSTREAM_HOST=\"%UPSTREAM_HOST%\" %UPSTREAM_CLUSTER% %UPSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_LOCAL_ADDRESS% %DOWNSTREAM_REMOTE_ADDRESS% %REQUESTED_SERVER_NAME% %ROUTE_NAME%\n"
-    trustDomain: east.local
+    trustDomain: <local_cluster_name>.local
     trustDomainAliases:
-    - west.local
+    - <remote_cluster_name>.local
     defaultConfig:
       proxyMetadata:
         # Enable basic DNS proxying
@@ -19,10 +19,10 @@ spec:
         mode: REGISTRY_ONLY
   values:
     global:
-      meshID: east-mesh
+      meshID: <local_cluster_name>-mesh
       multiCluster:
-        clusterName: east
-      network: east-network
+        clusterName: <local_cluster_name>
+      network: <local_cluster_name>-network
     pilot:
       env:
         ENABLE_NATIVE_SIDECARS: "true"
@@ -50,8 +50,6 @@ spec:
         label:
           istio: ingressgateway
         k8s:
-          podAnnotations:
-            spiffe.io/federatesWith: west.local
           overlays:
             - apiVersion: apps/v1
               kind: Deployment
@@ -93,10 +91,8 @@ spec:
         enabled: true
         label:
           app: federation-ingress-gateway
-          topology.istio.io/network: east-network
+          topology.istio.io/network: <local_cluster_name>-network
         k8s:
-          podAnnotations:
-            spiffe.io/federatesWith: "west.local"
           overlays:
           - apiVersion: apps/v1
             kind: Deployment
@@ -136,7 +132,7 @@ spec:
                         ls -l ${CHECK_FILE}
           env:
           - name: ISTIO_META_REQUESTED_NETWORK_VIEW
-            value: east-network
+            value: <local_cluster_name>-network
           service:
             ports:
             - name: discovery

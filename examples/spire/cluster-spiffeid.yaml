@@ -1,9 +1,10 @@
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: istio-ingressgateway-reg
+  name: spiffe-id-for-istio
 spec:
   spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
   namespaceSelector:
     matchLabels:
       spire-identity: "true"
+  federatesWith: ["<remote_cluster>.local"]

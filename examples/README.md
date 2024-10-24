@@ -20,7 +20,7 @@ alias helm-west="KUBECONFIG=$(pwd)/west.kubeconfig helm"
 ### Trust model
 
 Currently, mesh federation does not work for meshes using different root certificates, but this is on the roadmap.
-For different roots and trust domains use SPIRE.
+For different roots and trust domains use SPIRE and follow this [instruction](spire/README.md).
 
 Download tools for certificate generation:
 ```shell
@@ -62,31 +62,6 @@ kwest create secret generic cacerts -n istio-system \
   --from-file=ca-key.pem=west/ca-key.pem \
   --from-file=cert-chain.pem=west/cert-chain.pem
 ```
-
-#### Different roots and trust domains
-
-Generate root certificates for both clusters:
-```shell
-make -f Makefile.selfsigned.mk \
-  ROOTCA_CN="East Root CA" \
-  ROOTCA_ORG=my-company.org \
-  root-ca
-mkdir -p east
-mv root-cert.pem east
-mv root-key.pem east
-make -f common.mk clean
-
-make -f Makefile.selfsigned.mk \
-  ROOTCA_CN="West Root CA" \
-  ROOTCA_ORG=my-company.org \
-  root-ca
-mkdir -p west
-mv root-cert.pem west
-mv root-key.pem west
-make -f common.mk clean
-```
-
-Now, follow this [instruction](spire/README.md) to deploy cert-manager and SPIRE.
 
 ### Deploy control planes and federation controllers
 

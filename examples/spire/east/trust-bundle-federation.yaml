@@ -4,7 +4,7 @@ metadata:
   name: west
 spec:
   trustDomain: west.local
-  bundleEndpointURL: https://<west_bundle_endpoints_ip>:8443
+  bundleEndpointURL: https://<remote_bundle_endpoint_ip>:8443
   bundleEndpointProfile:
     type: https_spiffe
     endpointSPIFFEID: spiffe://west.local/spire/server

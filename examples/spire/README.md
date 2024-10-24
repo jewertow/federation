@@ -14,8 +14,30 @@ helm-west install cert-manager jetstack/cert-manager \
   --set crds.enabled=true
 ```
 
-### Create cluster issuer
+#### Create cluster issuer
 
+1. Generate root certificates for both clusters:
+```shell
+make -f Makefile.selfsigned.mk \
+  ROOTCA_CN="East Root CA" \
+  ROOTCA_ORG=my-company.org \
+  root-ca
+mkdir -p east
+mv root-cert.pem east
+mv root-key.pem east
+make -f common.mk clean
+
+make -f Makefile.selfsigned.mk \
+  ROOTCA_CN="West Root CA" \
+  ROOTCA_ORG=my-company.org \
+  root-ca
+mkdir -p west
+mv root-cert.pem west
+mv root-key.pem west
+make -f common.mk clean
+```
+
+2. Create cluster issuers from generated certificates:
 ```shell
 keast create secret tls ca-key-cert --cert=east/root-cert.pem --key=east/root-key.pem -n cert-manager
 kwest create secret tls ca-key-cert --cert=west/root-cert.pem --key=west/root-key.pem -n cert-manager
@@ -25,60 +47,51 @@ kwest apply -f examples/spire/cluster-issuer.yaml
 
 ### Install SPIRE
 
-1. Deploy SPIRE server and agent:
+1. Install SPIRE:
 ```shell
 keast create namespace spire
 keast apply -f examples/spire/crds.yaml
-sed -e "s/<cluster_name>/east/g" -e "s/<trust_domain>/east.local/g" examples/spire/spire-quickstart.yaml | keast apply -f -
-#keast create cm k8s-workload-registrar -n spire --from-file examples/spire/east/k8s-workload-registrar.conf
-#keast create cm spire-server -n spire --from-file examples/spire/east/server.conf
-#keast create cm spire-agent -n spire --from-file examples/spire/east/agent.conf
-#keast apply -f examples/spire/spire.yaml
+sed "s/<cluster_name>/east/g" examples/spire/spire.yaml | keast apply -f -
 kwest create namespace spire
-#kwest create cm k8s-workload-registrar -n spire --from-file examples/spire/west/k8s-workload-registrar.conf
-#kwest create cm spire-server -n spire --from-file examples/spire/west/server.conf
-#kwest create cm spire-agent -n spire --from-file examples/spire/west/agent.conf
-#kwest apply -f examples/spire/spire.yaml
 kwest apply -f examples/spire/crds.yaml
-sed -e "s/<cluster_name>/west/g" -e "s/<trust_domain>/west.local/g" examples/spire/spire-quickstart.yaml | kwest apply -f -
-```
-
-Verify registry:
-```shell
-keast exec -t spire-server-0 -n spire -c spire-server -- ./bin/spire-server entry show
-kwest exec -t spire-server-0 -n spire -c spire-server -- ./bin/spire-server entry show
+sed "s/<cluster_name>/west/g" examples/spire/spire.yaml | kwest apply -f -
 ```
 
 2. Create cluster SPIFFE IDs:
 ```shell
-keast apply -f examples/spire/east/cluster-spiffeid.yaml
-kwest apply -f examples/spire/west/cluster-spiffeid.yaml
+sed "s/<remote_cluster>/west/g" examples/spire/cluster-spiffeid.yaml | keast apply -f -
+sed "s/<remote_cluster>/east/g" examples/spire/cluster-spiffeid.yaml | kwest apply -f -
 ```
 
-3. Deploy Istio:
-```shell
-keast create namespace istio-system
-keast label namespace istio-system spire-identity=true
-kwest create namespace istio-system
-kwest label namespace istio-system spire-identity=true
-istioctl --kubeconfig=east.kubeconfig manifest generate -f examples/spire/east/istio.yaml | keast apply -f -
-istioctl --kubeconfig=west.kubeconfig manifest generate -f examples/spire/east/istio.yaml | kwest apply -f -
-```
-
-4. Federate bundles:
+3. Federate bundles:
 ```shell
 spire_bundle_endpoint_west=$(kwest get svc spire-server-bundle-endpoint -n spire -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 west_bundle=$(kwest exec -c spire-server -n spire --stdin spire-server-0  -- /opt/spire/bin/spire-server bundle show -format spiffe -socketPath /tmp/spire-server/private/api.sock)
 indented_west_bundle=$(echo "$west_bundle" | jq -r '.' | sed 's/^/    /')
 echo -e "  trustDomainBundle: |-\n$indented_west_bundle" >> examples/spire/east/trust-bundle-federation.yaml
-sed "s/<west_bundle_endpoints_ip>/$spire_bundle_endpoint_west/g" examples/spire/east/trust-bundle-federation.yaml | keast apply -f -
+sed "s/<remote_bundle_endpoint_ip>/$spire_bundle_endpoint_west/g" examples/spire/east/trust-bundle-federation.yaml | keast apply -f -
 ```
 ```shell
 spire_bundle_endpoint_east=$(keast get svc spire-server-bundle-endpoint -n spire -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 east_bundle=$(keast exec -c spire-server -n spire --stdin spire-server-0  -- /opt/spire/bin/spire-server bundle show -format spiffe -socketPath /tmp/spire-server/private/api.sock)
 indented_east_bundle=$(echo "$east_bundle" | jq -r '.' | sed 's/^/    /')
 echo -e "  trustDomainBundle: |-\n$indented_east_bundle" >> examples/spire/west/trust-bundle-federation.yaml
-sed "s/<east_bundle_endpoints_ip>/$spire_bundle_endpoint_east/g" examples/spire/west/trust-bundle-federation.yaml | kwest apply -f -
+sed "s/<remote_bundle_endpoint_ip>/$spire_bundle_endpoint_east/g" examples/spire/west/trust-bundle-federation.yaml | kwest apply -f -
+```
+
+4. Deploy Istio:
+```shell
+keast create namespace istio-system
+keast label namespace istio-system spire-identity=true
+kwest create namespace istio-system
+kwest label namespace istio-system spire-identity=true
+sed -e "s/<local_cluster_name>/east/g" -e "s/<remote_cluster_name>/west/g" examples/spire/istio.yaml | istioctl --kubeconfig=east.kubeconfig manifest generate -f - | keast apply -f -
+sed -e "s/<local_cluster_name>/west/g" -e "s/<remote_cluster_name>/east/g" examples/spire/istio.yaml | istioctl --kubeconfig=west.kubeconfig manifest generate -f - | kwest apply -f -
+```
+Verify Spire's registry:
+```shell
+keast exec -t spire-server-0 -n spire -c spire-server -- ./bin/spire-server entry show
+kwest exec -t spire-server-0 -n spire -c spire-server -- ./bin/spire-server entry show
 ```
 
 5. Deploy federation controllers:
