@@ -177,6 +177,8 @@ Expected response:
 8. Configure the east ingress gateway and check if traffic was routed to httpbin in the west cluster:
 ```shell
 keast apply -f examples/spire/east/httpbin-gateway.yaml
+```
+```shell
 EAST_INGRESS_IP=$(keast get svc istio-ingressgateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 curl -v "http://$EAST_INGRESS_IP:80/headers"
 ```
