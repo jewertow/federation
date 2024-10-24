@@ -16,8 +16,8 @@ spec:
         traffic.sidecar.istio.io/includeInboundPorts: "*"
         traffic.sidecar.istio.io/excludeInboundPorts: "15010"
       {{- end }}
-      {{- if eq .Values.istio.sdsProvider "spire" }}
-        inject.istio.io/templates: "sidecar,spire"
+      {{- if .Values.istio.spire.enabled }}
+        inject.istio.io/templates: "sidecar,{{ .Values.istio.spire.templateName }}"
       {{- end }}
       labels:
         {{- include "chart.labels" . | nindent 8 }}

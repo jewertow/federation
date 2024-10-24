@@ -2,6 +2,11 @@ image:
   repository: quay.io/maistra-dev/federation-controller
   tag: latest
 
+istio:
+  spire:
+    enabled: false
+    templateName: spire
+
 federation:
   configMode: mcp
   meshPeers:

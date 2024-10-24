@@ -2,6 +2,8 @@
 
 ```shell
 helm repo add jetstack https://charts.jetstack.io --force-update
+```
+```shell
 helm-east install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --create-namespace \
