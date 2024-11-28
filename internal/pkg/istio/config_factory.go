@@ -289,45 +289,32 @@ func (cf *ConfigFactory) WorkloadEntries() ([]*v1alpha3.WorkloadEntry, error) {
 func (cf *ConfigFactory) serviceEntryForRemoteFederationController() *v1alpha3.ServiceEntry {
 	se := &v1alpha3.ServiceEntry{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "remote-federation-controller",
+			Name:      fmt.Sprintf("federation-discovery-service-%s", cf.cfg.MeshPeers.Remote.Name),
 			Namespace: cf.cfg.MeshPeers.Local.ControlPlane.Namespace,
 			Labels:    map[string]string{"federation.istio-ecosystem.io/peer": "todo"},
 		},
-	}
-	if cf.cfg.MeshPeers.Remote.IngressType == config.OpenShiftRouter {
-		se.Spec = istionetv1alpha3.ServiceEntry{
-			Hosts:     []string{cf.cfg.MeshPeers.Remote.Addresses[0]},
-			Addresses: networking.Resolve(cf.cfg.MeshPeers.Remote.Addresses[0]),
-			Ports: []*istionetv1alpha3.ServicePort{{
-				Name:     "tls-passthrough",
-				Number:   cf.cfg.MeshPeers.Remote.GetPort(),
-				Protocol: "TLS",
-			}},
-			Location:   istionetv1alpha3.ServiceEntry_MESH_INTERNAL,
-			Resolution: istionetv1alpha3.ServiceEntry_DNS,
-		}
-	} else {
-		se.Spec = istionetv1alpha3.ServiceEntry{
-			// TODO: this will not work for ingressType=istio when the remote address is a hostname
-			Hosts:     []string{fmt.Sprintf("federation-discovery-service-%s.istio-system.svc.cluster.local", cf.cfg.MeshPeers.Remote.Name)},
-			Addresses: networking.Resolve(cf.cfg.MeshPeers.Remote.Addresses[0]),
+		Spec: istionetv1alpha3.ServiceEntry{
 			Ports: []*istionetv1alpha3.ServicePort{{
 				Name:     "grpc",
 				Number:   15080,
 				Protocol: "GRPC",
 			}},
-			Endpoints: slices.Map(cf.cfg.MeshPeers.Remote.Addresses, func(addr string) *istionetv1alpha3.WorkloadEntry {
-				we := &istionetv1alpha3.WorkloadEntry{
-					Address: addr,
+			Endpoints: slices.Map(networking.Resolve(cf.cfg.MeshPeers.Remote.Addresses...), func(ip string) *istionetv1alpha3.WorkloadEntry {
+				return &istionetv1alpha3.WorkloadEntry{
+					Address: ip,
 					Labels:  map[string]string{"security.istio.io/tlsMode": "istio"},
 					Ports:   map[string]uint32{"grpc": cf.cfg.MeshPeers.Remote.GetPort()},
 					Network: cf.cfg.MeshPeers.Remote.Network,
 				}
-				return we
 			}),
 			Location:   istionetv1alpha3.ServiceEntry_MESH_INTERNAL,
 			Resolution: istionetv1alpha3.ServiceEntry_STATIC,
-		}
+		},
+	}
+	if cf.cfg.MeshPeers.Remote.IngressType == config.OpenShiftRouter {
+		se.Spec.Hosts = []string{cf.cfg.MeshPeers.Remote.Addresses[0]}
+	} else {
+		se.Spec.Hosts = []string{fmt.Sprintf("federation-discovery-service-%s.istio-system.svc.cluster.local", cf.cfg.MeshPeers.Remote.Name)}
 	}
 	return se
 }
