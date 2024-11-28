@@ -16,6 +16,7 @@ package istio
 
 import (
 	"fmt"
+	"istio.io/istio/pkg/maps"
 	"sort"
 
 	"google.golang.org/protobuf/types/known/structpb"
@@ -224,6 +225,13 @@ func (cf *ConfigFactory) ServiceEntries() ([]*v1alpha3.ServiceEntry, error) {
 		return nil, nil
 	}
 
+	var resolution istionetv1alpha3.ServiceEntry_Resolution
+	if networking.IsIP(cf.cfg.MeshPeers.Remote.Addresses[0]) {
+		resolution = istionetv1alpha3.ServiceEntry_STATIC
+	} else {
+		resolution = istionetv1alpha3.ServiceEntry_DNS
+	}
+
 	serviceEntries := []*v1alpha3.ServiceEntry{cf.serviceEntryForRemoteFederationController()}
 	for _, importedSvc := range cf.importedServiceStore.GetAll() {
 		_, err := cf.serviceLister.Services(importedSvc.Namespace).Get(importedSvc.Name)
@@ -248,11 +256,18 @@ func (cf *ConfigFactory) ServiceEntries() ([]*v1alpha3.ServiceEntry, error) {
 					Labels:    map[string]string{"federation.istio-ecosystem.io/peer": "todo"},
 				},
 				Spec: istionetv1alpha3.ServiceEntry{
-					Hosts:      []string{fmt.Sprintf("%s.%s.svc.cluster.local", importedSvc.Name, importedSvc.Namespace)},
-					Ports:      ports,
-					Endpoints:  cf.makeWorkloadEntrySpecs(importedSvc.Ports, importedSvc.Labels),
+					Hosts: []string{fmt.Sprintf("%s.%s.svc.cluster.local", importedSvc.Name, importedSvc.Namespace)},
+					Ports: ports,
+					Endpoints: slices.Map(cf.cfg.MeshPeers.Remote.Addresses, func(addr string) *istionetv1alpha3.WorkloadEntry {
+						return &istionetv1alpha3.WorkloadEntry{
+							Address: addr,
+							Labels:  maps.MergeCopy(importedSvc.Labels, map[string]string{"security.istio.io/tlsMode": "istio"}),
+							Ports:   makePortsMap(importedSvc.Ports, cf.cfg.MeshPeers.Remote.GetPort()),
+							Network: cf.cfg.MeshPeers.Remote.Network,
+						}
+					}),
 					Location:   istionetv1alpha3.ServiceEntry_MESH_INTERNAL,
-					Resolution: istionetv1alpha3.ServiceEntry_STATIC,
+					Resolution: resolution,
 				},
 			})
 		}
@@ -270,15 +285,19 @@ func (cf *ConfigFactory) WorkloadEntries() ([]*v1alpha3.WorkloadEntry, error) {
 			}
 		} else {
 			// Service already exists - create WorkloadEntries.
-			workloadEntrySpecs := cf.makeWorkloadEntrySpecs(importedSvc.Ports, importedSvc.Labels)
-			for idx, weSpec := range workloadEntrySpecs {
+			for idx, ip := range networking.Resolve(cf.cfg.MeshPeers.Remote.Addresses...) {
 				workloadEntries = append(workloadEntries, &v1alpha3.WorkloadEntry{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      fmt.Sprintf("import-%s-%d", importedSvc.Name, idx),
 						Namespace: importedSvc.Namespace,
 						Labels:    map[string]string{"federation.istio-ecosystem.io/peer": "todo"},
 					},
-					Spec: *weSpec.DeepCopy(),
+					Spec: istionetv1alpha3.WorkloadEntry{
+						Address: ip,
+						Labels:  maps.MergeCopy(importedSvc.Labels, map[string]string{"security.istio.io/tlsMode": "istio"}),
+						Ports:   makePortsMap(importedSvc.Ports, cf.cfg.MeshPeers.Remote.GetPort()),
+						Network: cf.cfg.MeshPeers.Remote.Network,
+					},
 				})
 			}
 		}
@@ -299,48 +318,36 @@ func (cf *ConfigFactory) serviceEntryForRemoteFederationController() *v1alpha3.S
 				Number:   15080,
 				Protocol: "GRPC",
 			}},
-			Endpoints: slices.Map(networking.Resolve(cf.cfg.MeshPeers.Remote.Addresses...), func(ip string) *istionetv1alpha3.WorkloadEntry {
+			Endpoints: slices.Map(cf.cfg.MeshPeers.Remote.Addresses, func(addr string) *istionetv1alpha3.WorkloadEntry {
 				return &istionetv1alpha3.WorkloadEntry{
-					Address: ip,
+					Address: addr,
 					Labels:  map[string]string{"security.istio.io/tlsMode": "istio"},
 					Ports:   map[string]uint32{"grpc": cf.cfg.MeshPeers.Remote.GetPort()},
 					Network: cf.cfg.MeshPeers.Remote.Network,
 				}
 			}),
-			Location:   istionetv1alpha3.ServiceEntry_MESH_INTERNAL,
-			Resolution: istionetv1alpha3.ServiceEntry_STATIC,
+			Location: istionetv1alpha3.ServiceEntry_MESH_INTERNAL,
 		},
 	}
-	if cf.cfg.MeshPeers.Remote.IngressType == config.OpenShiftRouter {
-		se.Spec.Hosts = []string{cf.cfg.MeshPeers.Remote.Addresses[0]}
-	} else {
+	if networking.IsIP(cf.cfg.MeshPeers.Remote.Addresses[0]) {
 		se.Spec.Hosts = []string{fmt.Sprintf("federation-discovery-service-%s.istio-system.svc.cluster.local", cf.cfg.MeshPeers.Remote.Name)}
+		se.Spec.Resolution = istionetv1alpha3.ServiceEntry_STATIC
+	} else {
+		se.Spec.Hosts = []string{cf.cfg.MeshPeers.Remote.Addresses[0]}
+		se.Spec.Resolution = istionetv1alpha3.ServiceEntry_DNS
 	}
 	return se
-}
-
-func (cf *ConfigFactory) makeWorkloadEntrySpecs(ports []*v1alpha1.ServicePort, labels map[string]string) []*istionetv1alpha3.WorkloadEntry {
-	var workloadEntries []*istionetv1alpha3.WorkloadEntry
-	for _, hostnameOrIP := range cf.cfg.MeshPeers.Remote.Addresses {
-		for _, addr := range networking.Resolve(hostnameOrIP) {
-			we := &istionetv1alpha3.WorkloadEntry{
-				Address: addr,
-				Network: cf.cfg.MeshPeers.Remote.Network,
-				Labels:  labels,
-				Ports:   make(map[string]uint32, len(ports)),
-			}
-			// enable Istio mTLS
-			we.Labels["security.istio.io/tlsMode"] = "istio"
-			for _, p := range ports {
-				we.Ports[p.Name] = cf.cfg.MeshPeers.Remote.GetPort()
-			}
-			workloadEntries = append(workloadEntries, we)
-		}
-	}
-	return workloadEntries
 }
 
 // routerCompatibleSNI returns SNI compatible with https://datatracker.ietf.org/doc/html/rfc952 required by OpenShift Router.
 func routerCompatibleSNI(svcName, svcNs string, port int32) string {
 	return fmt.Sprintf("%s-%d.%s.svc.cluster.local", svcName, port, svcNs)
+}
+
+func makePortsMap(ports []*v1alpha1.ServicePort, remotePort uint32) map[string]uint32 {
+	m := make(map[string]uint32, len(ports))
+	for _, p := range ports {
+		m[p.Name] = remotePort
+	}
+	return m
 }

@@ -24,8 +24,8 @@ import (
 func Resolve(addrs ...string) []string {
 	var allIPs []string
 	for _, addr := range addrs {
-		if ip := net.ParseIP(addr); ip != nil {
-			allIPs = append(allIPs, ip.String())
+		if IsIP(addr) {
+			allIPs = append(allIPs, addr)
 			continue
 		}
 
@@ -39,4 +39,8 @@ func Resolve(addrs ...string) []string {
 		allIPs = append(allIPs, stringIPs...)
 	}
 	return allIPs
+}
+
+func IsIP(s string) bool {
+	return net.ParseIP(s) != nil
 }

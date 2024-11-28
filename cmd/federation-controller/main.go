@@ -196,11 +196,12 @@ func main() {
 	var fdsClient *adsc.ADSC
 	if len(cfg.MeshPeers.Remote.Addresses) > 0 {
 		var discoveryAddr string
-		if cfg.MeshPeers.Remote.IngressType == config.OpenShiftRouter {
-			discoveryAddr = fmt.Sprintf("%s:15080", cfg.MeshPeers.Remote.Addresses[0])
-		} else {
+		if networking.IsIP(cfg.MeshPeers.Remote.Addresses[0]) {
 			discoveryAddr = fmt.Sprintf("federation-discovery-service-%s.%s.svc.cluster.local:15080", cfg.MeshPeers.Remote.Name, cfg.MeshPeers.Local.ControlPlane.Namespace)
+		} else {
+			discoveryAddr = fmt.Sprintf("%s:15080", cfg.MeshPeers.Remote.Addresses[0])
 		}
+
 		var err error
 		fdsClient, err = adsc.New(&adsc.ADSCConfig{
 			DiscoveryAddr: discoveryAddr,
@@ -223,7 +224,7 @@ func main() {
 		kube.NewWorkloadEntryReconciler(istioClient, istioConfigFactory),
 		kube.NewPeerAuthResourceReconciler(istioClient, namespace),
 	}
-	if cfg.MeshPeers.Local.IngressType == config.OpenShiftRouter {
+	if cfg.MeshPeers.Remote.IngressType == config.OpenShiftRouter {
 		routeClient, err := routev1client.NewForConfig(kubeConfig)
 		if err != nil {
 			log.Fatalf("failed to create Route client: %v", err)
@@ -232,7 +233,15 @@ func main() {
 		reconcilers = append(reconcilers, kube.NewDestinationRuleReconciler(istioClient, istioConfigFactory))
 		reconcilers = append(reconcilers, kube.NewEnvoyFilterReconciler(istioClient, istioConfigFactory))
 		reconcilers = append(reconcilers, kube.NewRouteReconciler(routeClient, openshift.NewConfigFactory(*cfg, serviceLister)))
+	}
 
+	rm := kube.NewReconcilerManager(meshConfigPushRequests, reconcilers...)
+	if err := rm.ReconcileAll(ctx); err != nil {
+		log.Fatalf("initial Istio resource reconciliation failed: %v", err)
+	}
+	go rm.Start(ctx)
+
+	if !networking.IsIP(cfg.MeshPeers.Remote.Addresses[0]) {
 		go func() {
 			log.Debugf("Resolving %s", cfg.MeshPeers.Remote.Addresses[0])
 			lastIPs := networking.Resolve(cfg.MeshPeers.Remote.Addresses[0])
@@ -243,19 +252,12 @@ func main() {
 				if !slices.Equal(lastIPs, ips) {
 					log.Infof("IP addresses of %s have changed", cfg.MeshPeers.Remote.Addresses[0])
 					lastIPs = ips
-					meshConfigPushRequests <- xds.PushRequest{TypeUrl: xds.ServiceEntryTypeUrl}
 					meshConfigPushRequests <- xds.PushRequest{TypeUrl: xds.WorkloadEntryTypeUrl}
 				}
 				time.Sleep(1 * time.Second)
 			}
 		}()
 	}
-
-	rm := kube.NewReconcilerManager(meshConfigPushRequests, reconcilers...)
-	if err := rm.ReconcileAll(ctx); err != nil {
-		log.Fatalf("initial Istio resource reconciliation failed: %v", err)
-	}
-	go rm.Start(ctx)
 
 	if fdsClient != nil {
 		go func() {
